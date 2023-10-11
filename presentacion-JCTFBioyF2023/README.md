@@ -1,0 +1,1 @@
+Archivos correspondientes a la presentación realizada (poster) en las Jornadas de Ciencia y Técnica de FBioyF, UNR, en Agosto de 2023. En esta carpeta se encuentran el poster (.pdf) y el archivo de R utilizado para generarlo (.Rmd).
