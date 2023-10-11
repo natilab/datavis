@@ -1,0 +1,338 @@
+---
+title: "Simulación de Datos y Contrucción de Gráficos para Enseñanza"
+author: "Natalia Labadie, Joaquín Ferreya"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Simulación de datos y construcción de gráficos para comunicar y enseñar buenas prácticas de visualización de datos en investigación científica, particularmente en Ciencias Biológicas y Bioquímicas. Código utilizado para la simulación de datos y construcción de gráficos presentados en el poster "Uso de herramientas de R para la enseñanza de buenas prácticas de visualización de datos en investigación biológica" en LatinR 2023.
+
+## Paquetes utilizados
+
+```{r}
+
+# Simulación de datos
+library(truncnorm)
+library(faux)
+
+# Manipulación de datos
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# Gráficos
+library(ggplot2)
+library(ggthemr)
+library(grid)
+library(gridExtra)
+library(jpeg)
+library(patchwork)
+library(RColorBrewer)
+
+
+```
+
+```{r}
+
+# Estilo de Gráficos
+
+ggthemr("dust",line_weight = 1)
+theme_update(
+  axis.title.x = element_text(face="bold",size=22,colour = "black"),
+  axis.title.y = element_text(face="bold",size=22,colour = "black"),
+  axis.text.y = element_text(size=19,colour = "black"),
+  axis.text.x = element_text(size=19,colour = "black"),
+  strip.text = element_text(face="bold",size=10),
+  legend.position = "none",
+  axis.line = element_line(linewidth = 1.8, colour = "black")
+)
+
+```
+
+## Funciones para la simulación de datos
+
+Se programaron algunas funciones para facilitar la simulación de conjuntos de datos con distribuciones con la misma media y desvío, distribuciones con outliers, distribuciones bimodales, etc.
+
+```{r}
+# scaling. Escalar el set de datos para que tenga la media y el desvío estándar deseado
+scaling <- function(set, desired.mean, desired.sd) { 
+  desired.sd * (set - mean(set)) / sd(set) + desired.mean
+}
+
+
+# Funciones para simular datasets con determinada forma (sin escala particular)
+
+# Normal+outlier
+# Genera datos provenientes de una distribución normal estándar y les agrega 1 outlier.
+outlier <- function(n) {
+  d <- rnorm(n) 
+  k <- sample(c(1, -1), 1)*runif(1, 3, 6) 
+  d[sample(1:n, 1)] <- 0 + k*1
+  
+  return(d)
+}
+
+# Asymmetric
+# Genera un set de datos con distribución asimétrica hacia la derecha, provenientes de una distribución Beta.
+rightskewed <- function(n) {
+  d <- rbeta(n, 1, 5)
+  return(d)
+} 
+
+# Genera un set de datos con distribución asimétrica hacia la izquierda, provenientes de una distribución Beta.
+leftskewed <- function(n) {
+  d <- rbeta(n, 5, 1)
+  return(d)
+} 
+
+# Genera datos con una distribución bimodal, construida a partir de dos distribuciones normales truncadas.
+bimodal <- function(n) {
+  c(rtruncnorm(n/2, a=0, b=2, mean=1, sd=.3),
+    rtruncnorm(n/2, a=2, b=4, mean=3, sd=.3))
+}
+
+
+```
+
+
+# Pequeños conjuntos de datos (Ejemplo 1)
+
+Se simularon tres sets de datos de extensión pequeña (n=5) basados en trabajos en Biología Molecular donde típicamente se usan gráficos dinamita. Los datos provienen de una distribución normal y uno de ellos presenta un outlier.
+
+```{r}
+set.seed(2019)
+
+setA <- scaling(rnorm(5), desired.mean = 1.5, desired.sd = 0.5)
+setB <- scaling(outlier(5), desired.mean = 1.5, desired.sd = 0.5)
+setC <- rnorm(5, mean = 2.1, sd = 0.15)
+
+datos1 <- data.frame(setA, setB, setC) %>% 
+  mutate(id = 1:5) %>% 
+  pivot_longer(cols = starts_with("set"),
+               names_to = "set",
+               names_prefix = "set",
+               values_to = "fold_change") %>% 
+  mutate(set = factor(set, levels = c("A", "B", "C"),
+                      labels = c("Dosis 0", "Dosis 1", "Dosis 2")))
+```
+
+### Gráficos 
+
+```{r}
+plot1 <- datos1%>% 
+  group_by(set)%>%
+  summarise(Mean = mean(fold_change),
+            sd = sd(fold_change))%>%
+  ggplot(aes(y=Mean,x=set,fill=set)) +
+  geom_bar(stat = 'identity', position = position_dodge(.9), lwd = 1.5, colour = "black",width = .5)+
+  geom_errorbar(aes(ymin=Mean, ymax=Mean+sd), width=.2,
+                position=position_dodge(.9), lwd = 1.5, colour = "black") +
+  scale_y_continuous(name = "Expresión génica \n relativa (fold change)",
+                     expand = c(0,0), limits = c(0,3.1)) +
+  labs(title = "Gráfico\nDinamita") +
+  theme(axis.title.x = element_blank(),
+        plot.margin = unit(c(0, 5.5, 0, 5.5), "pt"),
+      	plot.title = element_text(size = 18),
+      	axis.title.y = element_text(size = 20)
+)
+
+plot2 <- datos1 %>% 
+  group_by(set) %>% 
+  summarise(Media = mean(fold_change),
+            SD = sd(fold_change)) %>%
+  ggplot(aes(x = set)) +
+  scale_y_continuous(limits = c(0,3.1),expand = c(0,0)
+                     # , name = "Expresión génica \n relativa (fold change)"
+                     ) +
+  geom_errorbar(aes(ymin=Media-SD, ymax=Media+SD), width=.2,
+                position=position_dodge(.9), lwd = 1.2, colour = "black") +
+  geom_errorbar(aes(ymin=Media, ymax=Media), width=.3,
+                position=position_dodge(.9), lwd = 1.6, colour = "black") +
+  geom_jitter(aes(y=fold_change,x=set), datos1, shape=16, position=position_jitter(0.1), size = 3.5,colour = "black") + 
+  ylab("") +
+  labs(title = "Gráfico de medias y \nbarras de error + jitter plot") +
+  theme(axis.title.x = element_blank(),
+        plot.margin = unit(c(0, 5.5, 0, 5.5), "pt"),
+      	plot.title = element_text(size = 18)
+)
+
+grid.arrange(plot1, plot2, nrow = 1)
+```
+
+
+# Datasets de mayor extensión (Ejemplo 2)
+
+Se simularon 6 sets de datos de extensión mayor para ilustrar las potencialidades y limitaciones del boxplot y el diagrama de violin. Los datos presentan distribuciones normal, asimétrica o bimodal. Se agregó un set de datos con menor extensión para mostrar la importancia de graficar las observaciones en forma de puntos (jitter plot).
+
+```{r}
+set.seed(2019)
+nn = 20
+set2A_1 <- scaling(rnorm(nn), desired.mean = 2.5, desired.sd = 0.7) # normal
+
+set2A_2 <- scaling(outlier(nn), desired.mean = 2.5, desired.sd = 0.7) # con outlier
+
+set2A_3 <- scaling(rnorm(nn), desired.mean = 2.5, desired.sd = 0.3) # menor variabilidad
+
+set2A_4 <- scaling(leftskewed(nn), desired.mean = 2.5, desired.sd = 0.7) # asimétrico hacia la izq
+
+set2A_5 <- scaling(bimodal(nn), desired.mean = 2.5, desired.sd = 0.7) # bimodal
+
+# small n
+set2A_6 <- c(scaling(rnorm(6), desired.mean = 2.6, desired.sd = 0.7), rep(NA, nn-6))
+
+datos2A <- data.frame(map(paste0("set2A_", 1:6), get))
+colnames(datos2A) <- paste0("set", 1:6)
+
+datos2A <- datos2A %>%
+  mutate(id = 1:nn) %>%
+  pivot_longer(cols = starts_with("set"),
+               names_to = "set",
+               names_prefix = "set",
+               values_to = "var") %>%
+  filter(!is.na(var)) %>%
+  filter(set != 4) %>% 
+  mutate(set = factor(set, levels = c(1:3, 5:6), labels = LETTERS[1:5])) 
+
+```
+
+### Gráficos
+
+```{r}
+#GRÁFICO DINAMITA -------------------------------------------------------------------------------------
+plot3 <- datos2A%>%
+  group_by(set)%>%
+  summarise(Mean = mean(var),
+            sd = sd(var))%>%
+  ggplot(aes(y=Mean,x=set,fill=set))+
+  geom_bar(stat = 'identity', position = position_dodge(.9), lwd = 1, colour = "black",width = .5)+
+  geom_errorbar(aes(ymin=Mean, ymax=Mean+sd), width=.2,
+                position=position_dodge(.9), lwd = 1, colour = "black")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,6.5)) +
+  ylab("Variable medida") + # le saco el nombre de la variable, o le podemos poner algo como "variable medida" Se lo pongo así no queda mudo.
+  xlab("Set de datos") +
+  labs(title = "Gráfico Dinamita") +
+  theme(axis.title.x = element_text(face="bold",size=26,colour = "black"),
+  axis.title.y = element_text(face="bold",size=26,colour = "black"),
+	axis.line = element_line(linewidth = 2, colour = "black"),
+	plot.title = element_text(size = 22)
+)
+  
+#BOXPLOT MÚLTIPLE + JITTER ----------------------------------------------------------------------------
+plot4 <- datos2A %>%
+  ggplot(aes(x = var, y = set, fill = set)) +
+  geom_boxplot(lwd = 0.8, col = "black",outlier.shape = NA)+
+  coord_flip()+
+  xlab("Variable medida") +
+  ylab("Set de datos") +
+  labs(title = "Boxplot") +
+  scale_x_continuous(limits = c(0,6.5),expand = c(0,0)) +
+  geom_jitter(aes(x=var,y=set), datos2A, shape=16, size = 2.5, colour = "black", width = 0, height = 0.15) +
+  theme(axis.title.x = element_text(face="bold",size=26,colour = "black"),
+  axis.title.y = element_blank(),
+	axis.line = element_line(linewidth = 2, colour = "black"),
+	plot.title = element_text(size = 22)
+)
+
+#VIOLIN PLOT ------------------------------------------------------------------------------------------
+plot5 <- datos2A %>%
+  ggplot(aes(y = var, x = set, fill = set)) +
+  geom_violin(trim = FALSE, adjust = 1/2, scale = "width", lwd = 1, col = "black")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,6.5)) +
+  xlab("Set de datos")+
+  ylab("Variable medida") +
+  geom_jitter(shape = 16, size = 2.5, colour = "black", width = 0.05, height = 0) +
+  labs(title = "Diagrama de Violín") +
+  theme(axis.title.x = element_text(face="bold",size=26,colour = "black"),
+  axis.title.y = element_blank(),
+	axis.line = element_line(linewidth = 2, colour = "black"),
+	plot.title = element_text(size = 22)
+)
+
+grid.arrange(plot3, plot4, plot5, nrow = 1)
+```
+
+# Datos correlacionados
+
+Se simularon datos correspondientes a muestras dependientes, es decir que estén correlacionados, utilizando el paquete faux.
+
+```{r}
+set.seed(2020)
+datos3 <- rnorm_multi(n = 10, 
+                  mu = c(0.6, 0.66),
+                  sd = c(0.06, 0.06),
+                  r = c(0.95), 
+                  varnames = c("A", "B"),
+                  empirical = FALSE) %>% 
+  mutate(muestra=1:10) %>% 
+  pivot_longer(c(A, B), names_to = "tiempo", values_to = "AE") %>% 
+  mutate(muestra = factor(muestra),
+         tiempo = factor(tiempo, levels = c("A", "B"),
+                         labels = c("30 min", "60 min")))
+
+```
+
+Se realizaron los test de hipótesis considerando muestras dependientes (correcto) e independientes (incorrecto) para los datos.
+
+```{r}
+#Tests de hipótesis
+test_MI <- t.test(AE ~ tiempo, data = datos3,
+                  alternative = c("two.sided"),
+                  mu = 0, paired = FALSE, var.equal = TRUE)
+pvalue_MI <- test_MI$p.value
+
+test_MD <- t.test(AE ~ tiempo, data = datos3,
+       alternative = c("two.sided"),
+       mu = 0, paired = TRUE)
+pvalue_MD <- test_MD$p.value
+```
+
+### Gráficos
+
+```{r}
+options(scipen = 999)
+plot6 <- datos3 %>%
+  ggplot(aes(x = AE, y = tiempo, fill = tiempo)) +
+  geom_boxplot(lwd = 1, col = "black")+
+  coord_flip()+
+  xlab("Actividad enzimática")+
+  ylab("Tiempo de reacción")+
+  scale_x_continuous(limits = c(0.3,0.9),expand = c(0,0)) +
+  geom_jitter(shape=16, size = 2.5, colour = "black",width = 0, height = 0.15) +
+  labs(title = "Boxplot múltiple \n(asume muestras independientes)") +
+  geom_label(data = data.frame(y = 2, x = 0.85),
+             aes(x, y, label = paste("p-value == ", round(pvalue_MI, 4), " (t-test)")),
+             size = 4, color = "white", fill = "black", fontface = "bold", parse = TRUE,
+             label.padding = unit(0.25, "lines"), label.r = unit(0.4, "lines")) +
+  theme(plot.title = element_text(colour = "#91201b"),
+        plot.margin = unit(c(0, 5.5, 0, 5.5), "pt"),
+        axis.title.x = element_text(face="bold",size=18,colour = "black"),
+        axis.title.y = element_text(face="bold",size=18,colour = "black"))
+
+plot7 <- ggplot(datos3, aes(x = tiempo, y = AE, group = muestra)) +
+  geom_point(aes(color = muestra),size = 3) +
+  #scale_color_brewer(palette = "Paired") +
+  scale_color_manual(values = c("#555555FF", "#DB735CFF", "#EFA86EFF", "#9A8A76FF", "#F3C57BFF",
+                                "#7A6752FF", "#2A91A2FF", "#87F28AFF", "#6EDCEFFF", "#DB735CFF")) +
+  scale_y_continuous(name = "Actividad enzimática", limits = c(0.3,0.9),
+                     expand = c(0,0)) +
+  xlab("Tiempo de reacción") +
+  geom_line(aes(color = muestra), lwd = 1.25) +
+  labs(title = "Gráfico de perfiles \n(considera muestras pareadas)") +
+  geom_label(y = 0.85, x = 2,
+             label = paste("p-value == ", round(pvalue_MD, 4), " (t-test)"),
+             size = 4, color = "white", fill = "black", fontface = "bold", parse = TRUE,
+             label.padding = unit(0.25, "lines"), label.r = unit(0.4, "lines")) +
+  theme(plot.title = element_text(colour = "#406c13"),
+        axis.title.y = element_blank(),
+        plot.margin = unit(c(0, 5.5, 0, 5.5), "pt"),
+        axis.title.x = element_text(face="bold",size=18,colour = "black"))
+
+grid.arrange(plot6, plot7, nrow = 1)
+
+```
+
