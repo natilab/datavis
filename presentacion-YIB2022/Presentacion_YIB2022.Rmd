@@ -1,0 +1,810 @@
+---
+title: '¿QUÉ HISTORIAS TIENEN NUESTROS DATOS PARA CONTAR?'
+subtitle: 'La visualización como una instancia clave en el análisis de datos'
+output: 
+  beamer_presentation:
+    slide_level: 2
+    toc: false
+    theme: "Frankfurt"
+    fonttheme: "structurebold"
+    keep_tex: true
+author: "Lic. Joaquín Ferreyra - Lic. Natalia Labadie"
+institute: Departamento de Matemática y Estadística. Facultad de Ciencias Bioquímicas y Farmacéuticas (Universidad Nacional de Rosario) - Instituto de Química Rosario (UNR - CONICET)
+header-includes: 
+- \title{\centering\includegraphics[width=\textwidth]{Recomendado.png}\\}
+- \definecolor{youngbiophysics}{rgb}{0.5255,0.1412,0.3608}
+- \setbeamercolor{structure}{fg=youngbiophysics}
+- \usepackage{booktabs}
+- \usepackage{float}
+- \usepackage{booktabs}
+- \usepackage{colortbl}
+- \setbeamertemplate{headline}{}
+- \addtobeamertemplate{title page}{\centering \includegraphics[width=\textwidth]{Caratula.png}}{}
+---
+
+```{r, include = F}
+#Paquetes - \titlegraphic{\includegraphics[width=\textwidth]{Recomendado.png}}
+
+#simulacion de datos
+library(sn)
+library(truncnorm)
+library(faux)
+library(purrr)
+
+# procesamiento y graficos
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggthemr)
+library(grid)
+library(gridExtra)
+library(jpeg)
+library(patchwork)
+library(RColorBrewer)
+
+# formatos y rmd
+library(knitr)
+library(rmdformats)
+library(kableExtra)
+
+#ESTILO DE GRÁFICOS
+ggthemr("dust",line_weight = 1)
+theme_update(
+	axis.title.x = element_text(face="bold",size=22,colour = "black"),
+  axis.title.y = element_text(face="bold",size=22,colour = "black"),
+  axis.text.y = element_text(size=19,colour = "black"),
+  axis.text.x = element_text(size=19,colour = "black"),
+  strip.text = element_text(face="bold",size=10),
+  legend.position = "none",
+	axis.line = element_line(linewidth = 1.8, colour = "black")
+)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Datos: los grandes protagonistas
+¿Qué son los datos?
+: Piezas de información que reunimos con el objetivo de conocer un poco más sobre nuestro campo de investigación (aunque tener datos a disposición no implica automáticamente el acceso esa información).
+
+
+La **estadística** nos brinda herramientas para organizar, resumir, visualizar y procesar los datos que recolectamos para obtener la información que éstos contienen.
+
+## Empecemos con un caso de estudio
+
+El objetivo de un trabajo fue evaluar el efecto de la dosis de una droga sobre el **nivel de expresión génica** determinado por RT-qPCR de un gen de interés, para lo cual se realizaron **5 determinaciones** en cada una de las condiciones bajo estudio *(dosis 0, dosis 1, dosis 2)*.
+
+A continuación se presentan las observaciones correspondientes a la variable **expresión génica relativa (fold change)**:
+
+```{r}
+set.seed(2019)
+# 3 muestras de n=5, obtenidas de distribución normal. Rango 0-3. Muestra 2 tiene un outlier.
+datos1 <- data.frame(setA = rnorm(5, mean = 1.5, sd = 0.5), 
+                      setB = rnorm(5, mean = 1.6, sd = 0.2), 
+                      setC = rnorm(5, mean = 2.1, sd = 0.15)) %>% 
+  mutate(id = 1:5) %>% 
+  pivot_longer(cols = starts_with("set"),
+               names_to = "set",
+               names_prefix = "set",
+               values_to = "fold_change") %>% 
+  mutate(set = factor(set, levels = c("A", "B", "C"),
+                      labels = c("Dosis 0", "Dosis 1", "Dosis 2")))
+datos1$fold_change[5] <- 0.3
+
+datos1 %>%
+  pivot_wider(names_from = set,
+              values_from = fold_change) %>%
+  select(-c(id)) %>% 
+	kbl(booktabs = TRUE, align = "ccc", digits = 2) %>% 
+	kable_styling(position = "center",
+	              full_width = F,
+	              latex_options = c("HOLD_position")) 
+
+# para tener de ref:
+# http://haozhu233.github.io/kableExtra/awesome_table_in_pdf.pdf
+```
+
+## Medidas descriptivas
+
+Podríamos comenzar el análisis de nuestros datos calculando algunas medidas descriptivas de **posición** (media aritmética, mediana) y de **dispersión** (desviación estándar, rango intercuartil) para cada una de las condiciones bajo estudio por separado:
+
+```{r}
+# Tabla estadísticas descriptivas
+options(digits = 2)
+datos1 %>% 
+  group_by(set) %>% 
+  summarise(Media = mean(fold_change),
+            Mediana = quantile(fold_change,probs=c(0.50)),
+            SD = sd(fold_change),
+            RI = quantile(fold_change,probs=c(0.75)) - quantile(fold_change,probs=c(0.25)))%>%
+	kbl(booktabs = TRUE, align = "lcccc", digits = 2,
+	    col.names = c("Condición", "Media", "Mediana", 
+	                  "Desvío Estándar", "Rango Intercuartil"),
+	    table.attr = "style='width:70%;'") %>% 
+  add_header_above(c(" " = 1, "Posición" = 2, "Dispersión" = 2)) %>% 
+	kable_styling(position = "center",
+	              full_width = F,
+	              latex_options = c("HOLD_position")) 	
+
+# podemos seguir cambiandole formato a tabla para que quede linda :) pero creo que mas o menos está
+
+```
+
+**¿Nos alcanza esta información para responder a nuestro objetivo?**
+
+## La visualización de datos
+
+**Las estadísticas no nos cuentan la historia completa.**
+
+
+### Visualización de datos
+Es una forma importante y poderosa de relacionar las ideas, experiencias e historias contenidas en esos datos, que facilita la presentación y la comunicación de información en diversos contextos.
+
+## Datasaurus Dozen[^1]
+
+[^1]: Matejka, J.; Fitzmaurice, G. (2017). **Same Stats, Different Graphs: Generating Datasets with Varied Appearance and Identical Statistics through Simulated Annealing.**
+
+<!-- Conjunto de 13 datasets (el famoso **Datasaurus** y 12 más) formados por observaciones de 2 variables X e Y que, a pesar de poseer las mismas medidas descriptivas al graficarlos muestran todos un aspecto muy diferente. -->
+
+
+```{r out.height = "70%", fig.align = "center"}
+
+knitr::include_graphics("imagenes/datasaurus.png")
+
+```
+
+## Barplot with error bars - a.k.a. gráfico de dinamita
+
+*Gráfico de... ¿dinamita?*
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/coyote-tnt1.jpg")
+```
+
+## Barplot with error bars - a.k.a. gráfico de dinamita
+
+*Gráfico de... ¿dinamita?*
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/coyote-tnt2.jpg")
+```
+
+## Barplot with error bars - a.k.a. gráfico de dinamita
+
+*Gráfico de... ¿dinamita?*
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/coyote-tnt3.jpg")
+```
+
+## Barplot with error bars - a.k.a. gráfico de dinamita
+
+```{r,warning = F}
+Barplot1 <- datos1%>% 
+  group_by(set)%>%
+  summarise(Mean = mean(fold_change),
+            sd = sd(fold_change))%>%
+  ggplot(aes(y=Mean,x=set,fill=set))+
+  geom_bar(stat = 'identity', position = position_dodge(.9), lwd = 1.5, colour = "black",width = .5)+
+  geom_errorbar(aes(ymin=Mean, ymax=Mean+sd), width=.2,
+                position=position_dodge(.9), lwd = 1.5, colour = "black")+
+  scale_y_continuous(name = "Expresión génica \n relativa (fold change)",
+                     expand = c(0,0), limits = c(0,3))+
+  xlab("")
+
+Barplot1
+```
+
+## Barplot with error bars - a.k.a. gráfico de dinamita
+
+Al elegir este tipo de gráfico, no estamos mostrando más información que la que podríamos haber encontrado en nuestra tabla de estadísticas descriptivas.
+
+::: columns
+::: {.column width="50%"}
+```{r,out.width = "100%"}
+
+datos1 %>% 
+  group_by(set) %>% 
+  summarise(Media = mean(fold_change),
+            SD = sd(fold_change))%>%
+	kbl(booktabs = TRUE, align = "lcc", digits = 2,
+	    col.names = c("Condición", "Media", 
+	                  "DE")) %>% 
+	kable_styling(position = "center",
+	              full_width = F,
+	              latex_options = c("HOLD_position")) 
+```
+:::
+
+::: {.column width="50%"}
+```{r,out.width = "100%"}
+Barplot1
+```
+:::
+:::
+
+## Barplot with error bars - a.k.a. gráfico de dinamita
+Incorporar los valores observados nos brinda más información acerca de la **distribución** de los datos.
+
+```{r, out.width = "80%", fig.align = "center"}
+Barplot1 +
+    geom_jitter(aes(y=fold_change,x=set), datos1, shape=16, position=position_jitter(0.1), size = 5, colour = "black")
+```
+
+## ¿Qué son y qué hacemos con los *outliers*?
+
+Los **outliers** son observaciones que no son típicas del conjunto de datos que estamos analizando.
+
+**¿Por qué es importante detectarlos?** -\> Porque pueden influir sobre los resultados de un análisis estadístico clásico, en tanto gran parte de las técnicas utilizadas habitualmente son muy sensibles a la presencia de estos valores.
+
+Los outliers deben ser cuidadosamente inspeccionados. Si no hay evidencia de error y su valor es posible, no deberían ser eliminados.
+
+## Redflags del gráfico de dinamita
+
+Redflag #1
+: Los gráficos de barras están diseñados para representar **conteos y proporciones** relacionados al trabajo con **variables categóricas**. No obstante, continúan siendo una estrategia ampliamente aceptada para presentar información sobre variables cuantitativas.
+
+## Redflags del gráfico de dinamita
+
+Redflag #2
+: En un gráfico de dinamita se reconocen **dos regiones** que, potencialmente, pueden generar confusión y malas interpretaciones: una **región de irrelevancia** y una **región de invisibilidad**.
+
+```{r, out.height = "35%", fig.align = "center"}
+
+knitr::include_graphics("imagenes/barplot-problems.jpg")
+
+```
+
+Adaptado de Weissberger *et al.* (2017)[^2].
+
+[^2]: Weissberger, T. L., Savic, M. *et al.* (2017) **Data visualization, bar naked: A free tool for creating interactive graphics.** *J. Biol. Chem.* 292(50) 20592-20598.
+
+
+## Redflags del gráfico de dinamita
+
+
+Redflag #3
+: Si nos quedamos únicamente con una representación gráfica de la media y el desvío estándar de cada conjunto, nos estamos perdiendo **mucha** información valiosa sobre nuestros datos y la posibilidad de evaluarlos críticamente.
+
+## Una alternativa al gráfico de dinamita (pocos datos)
+Representamos media $\pm$ DE como intervalo y superponemos las observaciones individuales con un jitter plot: 
+```{r,out.height="70%",fig.align="center"}
+datos1 %>% 
+  group_by(set) %>% 
+  summarise(Media = mean(fold_change),
+            SD = sd(fold_change)) %>%
+  ggplot(aes(x = set)) +
+  scale_y_continuous(limits = c(0,3),expand = c(0,0),
+                     name = "Expresión génica \n relativa (fold change)") +
+  geom_errorbar(aes(ymin=Media-SD, ymax=Media+SD), width=.2,
+                position=position_dodge(.9), lwd = 1.2, colour = "black") +
+  geom_errorbar(aes(ymin=Media, ymax=Media), width=.3,
+                position=position_dodge(.9), lwd = 1.6, colour = "black") +
+  geom_jitter(aes(y=fold_change,x=set), datos1, shape=16, position=position_jitter(0.1), size = 5,colour = "black") + 
+  xlab("")
+  
+```
+
+
+## Más datos... y más gráficos de dinamita
+Supongamos que a partir de otros experimentos obtenemos un dataset mayor, y que al graficar nuestros resultados **\textcolor{youngbiophysics}{utilizando un gráfico de dinamita}** observamos lo siguiente:
+
+```{r}
+set.seed(2019)
+nn = 20
+set2A_1 <- rnorm(nn, mean = 2.5, sd = 0.7)
+
+set2A_2 <- rnorm(nn, mean = 2.2, sd = 0.5) # con outlier
+set2A_2[1] <- 2.2+6*0.5 # agrego outlier
+
+set2A_3 <- rnorm(nn, mean = 2.4, sd = 0.3) # menor variabilidad
+
+#skew-t
+params <- cp2dp(c(2.5, 0.7, 1.7, 6.5), "ST") #obtain params for skew normal dist
+# in vector: pop mean, pop sd, skewness, kurtosis
+set2A_4 <- rst(nn, dp = params) #skew-t data
+
+# bimodal -> mixture of normal distributions
+set2A_5 <- c(rtruncnorm(nn/2, a=0, b=2.4, mean=1.5, sd=.2),
+             rtruncnorm(nn/2, a=2.4, b=5, mean=3.2, sd=.2))
+
+# small n
+set2A_6 <- c(rnorm(6, mean = 2.6, sd = 0.7), rep(NA, nn-6))
+
+datos2A <- data.frame(map(paste0("set2A_", 1:6), get))
+colnames(datos2A) <- paste0("set", 1:6)
+
+datos2A <- datos2A %>%
+  mutate(id = 1:nn) %>% 
+  pivot_longer(cols = starts_with("set"),
+               names_to = "set",
+               names_prefix = "set",
+               values_to = "var") %>% 
+  filter(!is.na(var)) %>% 
+  mutate(set = factor(set, levels = 1:6, labels = LETTERS[1:6]))
+```
+
+```{r, out.height = "50%",fig.pos = "center",fig.align = "center"}
+Barplot2 <- datos2A%>%
+  group_by(set)%>%
+  summarise(Mean = mean(var),
+            sd = sd(var))%>%
+  ggplot(aes(y=Mean,x=set,fill=set))+
+  geom_bar(stat = 'identity', position = position_dodge(.9), lwd = 1.5, colour = "black",width = .5)+
+  geom_errorbar(aes(ymin=Mean, ymax=Mean+sd), width=.2,
+                position=position_dodge(.9), lwd = 1.5, colour = "black")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,4)) +
+  ylab("Variable medida") + # le saco el nombre de la variable, o le podemos poner algo como "variable medida" Se lo pongo así no queda mudo.
+  xlab("Condición")
+
+Barplot2
+```
+¿Qué podemos concluir a partir de esta representación visual?
+
+## Un gráfico estrella: el boxplot
+
+::: columns
+::: {.column width="50%"}
+Los cuartilos y los valores observados mínimo y máximo conforman un conjunto de cinco números que brindan un buen resumen de nuestros datos y con los cuales podemos construir un gráfico llamado **boxplot o diagrama de caja.**
+:::
+
+::: {.column width="50%"}
+```{r,out.width = "100%",warning = F}
+set_boxplot <- data.frame(id=1:nn,x=rnorm(nn, mean = 2.2, sd = 1.2)) # con outlier
+set_boxplot[1,2] <- 2.2+2*1.2 # agrego outlier
+
+set_boxplot %>%
+  ggplot(aes(x=x)) +
+  geom_boxplot(lwd = 1.8, col = "black",outlier.size = 5)+
+  theme(
+    axis.ticks.y = element_blank(),
+    axis.text.y = element_blank()
+  )+
+  xlab("")+
+  scale_x_continuous(limits = c(1,4.6))+
+  theme(axis.text.x = element_blank(),
+        axis.line.y = element_blank(),
+        axis.ticks.x = element_blank())
+```
+:::
+:::
+
+ Una versión modificada del boxplot permite detectar potenciales *outliers*.
+
+## Un boxplot múltiple para nuestros datos
+
+```{r,warning = FALSE, out.height="65%",fig.align = "center"}
+Boxplot1 <- datos2A %>%
+  ggplot(aes(x = var, y = set, fill = set)) +
+  geom_boxplot(lwd = 1.8, col = "black",outlier.size = 3)+
+  coord_flip()+
+  xlab("Variable medida") +
+  ylab("Condición") +
+  scale_x_continuous(limits = c(0,6.5),expand = c(0,0))
+Boxplot1
+```
+
+¿Qué información tenemos ahora acerca de los datos recolectados?
+¿Qué preguntas seguimos sin poder responder?
+
+## Superponemos el jitter plot...
+
+```{r,warning = FALSE,out.height="65%",fig.align = "center"}
+datos2A %>%
+  ggplot(aes(x = var, y = set, fill = set)) +
+  geom_boxplot(lwd = 1.8, col = "black",outlier.shape = NA)+
+  coord_flip()+
+  xlab("Variable medida") +
+  ylab("Condición") +
+  scale_x_continuous(limits = c(0,6.5),expand = c(0,0)) +
+  geom_jitter(aes(x=var,y=set), datos2A, shape=16, size = 3, colour = "black",width = 0, height = 0.15)
+```
+
+Agregando los valores observados podemos identificar distribuciones bimodales, diferencias en los tamaños muestrales, etc.
+
+## Violin plots: una alternativa a los boxplots
+
+```{r,warning = FALSE,out.height="80%"}
+Violin_plot <- datos2A %>%
+  ggplot(aes(y = var, x = set, fill = set)) +
+  geom_violin(trim = FALSE, adjust = 1/2, scale = "width", lwd = 1, col = "black")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,6.5)) +
+  xlab("Condición")+
+  ylab("Variable medida")
+
+Violin_plot +
+  geom_jitter(shape = 16, size = 3, colour = "black",width = 0.05, height = 0)
+```
+
+## Violin plots: una alternativa a los boxplots
+
+*¿Ameba plots?*
+
+```{r,warning = FALSE,out.height="80%"}
+
+# read the jpef file from device
+img <- readJPEG("imagenes/banda-ameba.jpg", native = TRUE)
+  
+datos2A %>%
+  ggplot(aes(y = var, x = set, fill = set, alpha = 0.05)) +
+  geom_jitter(shape = 16, size = 3, colour = "black",width = 0, height = 0.15)+
+  geom_violin(trim = FALSE, adjust = 1/2, scale = "width", lwd = 1.8, col = "black")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,6.5)) +
+  xlab("")+
+  ylab("")+
+  inset_element(p = img,
+                left = 0.01,
+                bottom = 0.01,
+                right = 1,
+                top = 1)
+```
+
+## Violin plots: una alternativa a los boxplots
+
+::: columns
+::: {.column width="50%"}
+Los **violin plot o diagramas de violín** son gráficos de densidad de probabilidad espejados. Permiten visualizar fácilmente la distribución de conjuntos de muchos datos. Se les pueden agregar los valores observados, un boxplot, media y barras de error, etc. No son útiles cuando tenemos pocos datos.
+:::
+
+::: {.column width="50%"}
+```{r,out.width = "100%",warning = F}
+set_violinplot <- data.frame(id="A",x=rnorm(nn, mean = 4, sd = 1))
+
+set_violinplot %>%
+  ggplot(aes(x = x, y = id, fill = id)) +
+  geom_violin(trim = FALSE, adjust = 1/2, scale = "width", lwd = 1.8, col = "black") +
+  theme(
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.line.y = element_blank(),
+    axis.title.y = element_blank()) +
+  xlab("") +
+  scale_x_continuous(limits = c(1,6))+
+  geom_jitter(shape = 16, size = 5, colour = "black",width = 0, height = 0.05)
+```
+:::
+:::
+
+## No hay gráfico que cuente la historia completa[^3]
+
+[^3]: Scherer, C. (2021). **Visualizing Distributions with Raincloud Plots (and How to Create Them with ggplot2)**. Recuperado de: <https://www.cedricscherer.com/2021/06/06/visualizing-distributions-with-raincloud-plots-and-how-to-create-them-with-ggplot2/>
+
+A pesar de que los boxplots para los tres grupos lucen idénticos, superponer un Jitter plot con las observaciones individuales nos revela la existencia de tres patrones radicalmente diferentes en los datos que los originan:
+
+```{r}
+set.seed(2021)
+
+datos2B <- tibble(
+  group = factor(c(rep("Group 1", 100), rep("Group 2", 250), rep("Group 3", 25))),
+  value = c(seq(0, 20, length.out = 100),
+            c(rep(0, 5), rnorm(30, 2, .1), rnorm(90, 5.4, .1), rnorm(90, 14.6, .1), rnorm(30, 18, .1), rep(20, 5)),
+            rep(seq(0, 20, length.out = 5), 5))
+) %>% 
+  rowwise() %>%
+  mutate(value = if_else(group == "Group 2", value + rnorm(1, 0, .4), value),
+         group = factor(group,levels = c("Group 1","Group 2","Group 3"), labels = c("Grupo 1", "Grupo 2", "Grupo 3")))
+```
+
+::: columns
+::: {.column width="50%"}
+```{r,out.width = "100%",fig.pos = "center"}
+Boxplot2 <- datos2B %>%
+  ggplot(aes(y = value, x = group, fill = group)) +
+  geom_boxplot(lwd = 1.8, col = "black")+
+  coord_flip() + 
+  ylab("Variable") + xlab("Grupo")
+Boxplot2
+```
+:::
+
+::: {.column width="50%"}
+```{r,out.width = "100%",fig.pos = "center"}
+Boxplot2 +
+  geom_jitter(aes(y=value,x=group), datos2B, shape=16, size = 3, colour = "black",width = 0.15, height = 0)
+```
+:::
+:::
+
+## Hay muchas alternativas...
+
+```{r,out.height="80%",fig.align="center"}
+knitr::include_graphics("imagenes/tweet-meme-barplot.png")
+```
+
+
+## Apliquemos lo aprendido
+
+::: block
+### Ejemplo
+
+Pusimos a punto un método para determinar la actividad enzimática de una enzima de interés en extractos celulares por fluoresencia. El último paso del ensayo consiste en formar un aducto fluorescente entre el producto de reacción y un reactivo adecuado por un tiempo suficiente. Deseamos evaluar si hay diferencia en la actividad medida al formar el aducto durante 30 o 60 minutos. Para eso, trabajamos con 10 muestras y medimos la actividad en cada una de ellas luego de 30 y 60 minutos de reacción de formación del aducto.
+:::
+
+## Apliquemos lo aprendido
+Estos son los resultados obtenidos (en $\mu$moles sustrato/mg proteína):
+```{r}
+set.seed(2020)
+datos3 <- rnorm_multi(n = 10, 
+                  mu = c(0.6, 0.66),
+                  sd = c(0.06, 0.06),
+                  r = c(0.95), 
+                  varnames = c("A", "B"),
+                  empirical = FALSE) %>% 
+  mutate(muestra=1:10) %>% 
+  pivot_longer(c(A, B), names_to = "tiempo", values_to = "AE") %>% 
+  mutate(muestra = factor(muestra),
+         tiempo = factor(tiempo, levels = c("A", "B"),
+                         labels = c("30 min", "60 min")))
+datos3 %>%
+  pivot_wider(id_cols = muestra, names_from = tiempo, values_from = AE) %>% 
+	kbl(booktabs = TRUE, align = "ccc", digits = 3,
+	    col.names = c("Muestra", "30 min", "60 min")) %>% 
+  add_header_above(c(" " = 1, "Actividad enzimática" = 2)) %>%  
+	kable_styling(position = "center",
+	              full_width = F,
+	              latex_options = c("HOLD_position")) 
+```
+## Apliquemos lo aprendido
+Insistimos un poquito más con los gráficos de dinamita (¿por qué no?)
+```{r,out.height="70%",fig.align="center"}
+Barplot3 <- datos3%>%
+  group_by(tiempo)%>%
+  summarise(Mean = mean(AE),
+            sd = sd(AE))%>%
+  ggplot(aes(y=Mean,x=tiempo,fill=tiempo)) +
+  geom_bar(stat = 'identity', position = position_dodge(.9), lwd = 1.5, colour = "black",width = .5) +
+  geom_errorbar(aes(ymin=Mean, ymax=Mean+sd), width=.2,
+                position=position_dodge(.9),lwd = 1.5,colour = "black")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,0.9)) +
+  xlab("Tiempo de reacción") +
+  ylab("Actividad enzimática")
+
+Barplot3
+
+```
+
+## Apliquemos lo aprendido
+¿Por qué no probamos mejor con un boxplot múltiple + jitter plot?
+```{r,out.height="70%",fig.align="center"}
+Boxplot3 <- datos3 %>%
+  ggplot(aes(x = AE, y = tiempo, fill = tiempo)) +
+  geom_boxplot(lwd = 1.8, col = "black")+
+  coord_flip()+
+  xlab("Actividad enzimática")+
+  ylab("Tiempo de reacción")+
+  scale_x_continuous(limits = c(0.3,0.9),expand = c(0,0)) +
+  geom_jitter(shape=16, size = 3, colour = "black",width = 0, height = 0.15)
+
+Boxplot3
+
+# agregar p-value ensayo
+```
+
+## Apliquemos lo aprendido
+::: columns
+::: {.column width="50%"}
+```{r,out.width = "100%",fig.pos = "center"}
+# var.test(AE ~ tiempo, datos3, 
+#          alternative = "two.sided") #se pueden considerar homogéneas
+
+test_MI <- t.test(AE ~ tiempo, data = datos3,
+       alternative = c("two.sided"),
+       mu = 0, paired = FALSE, var.equal = TRUE)
+pvalue_MI <- test_MI$p.value
+
+Boxplot3 +
+  theme(axis.text.x = element_text(size = 22),
+        axis.text.y = element_text(size = 22),
+        axis.title.x = element_text(size = 25),
+        axis.title.y = element_text(size = 25))
+
+cat("Two sample t-test","\n")
+cat("p-value =", test_MI$p.value)
+```
+
+:::
+
+::: {.column width="50%"}
+En línea con el gráfico construido, si quisiéramos evaluar si existen diferencias estadísticamente significativas en la actividad enzimática promedio entre los dos tiempos de reacción de interés, utilizaríamos un **test-t para la comparación de dos promedios en base a muestras independientes.**
+
+
+¿Cuál sería nuestra conclusión en este caso?
+
+:::
+:::
+
+## La importancia del diseño experimental
+
+¿De qué nos estamos olvidando?
+El gráfico debe contar también la historia del diseño experimental utilizado, es decir, *cómo fueron obtenidos esos datos*.
+
+Recordando el ejemplo, las muestras estaban **pareadas**: a la misma muestra se le medía la actividad luego de 30 y 60 minutos de reacción.
+Si existe un *efecto muestra*, lo estamos obviando tanto en el gráfico como en el test.
+
+## La importancia del diseño experimental
+
+¿Qué pasa si agregamos la información de la muestra a un gráfico adecuado? (*Los distintos colores representan a las distintas muestras*)
+
+```{r,out.width="70%",fig.align="center"}
+dotplot <- ggplot(datos3, aes(x = tiempo, y = AE, group = muestra)) +
+  geom_point(aes(color = muestra),size = 3) +
+  scale_color_brewer(palette = "Paired") +
+  scale_y_continuous(name = "Actividad enzimática", limits = c(0.3,0.9),
+                     expand = c(0,0)) +
+  xlab("Tiempo de reacción")
+
+dotplot
+```
+
+
+## La importancia del diseño experimental
+
+```{r}
+dotplot +
+  geom_line(aes(color=muestra), lwd = 1.5)
+```
+
+## La importancia del diseño experimental
+::: columns
+::: {.column width="50%"}
+```{r,out.width = "100%",fig.pos = "center"}
+# var.test(AE ~ tiempo, datos3, 
+#          alternative = "two.sided") #se pueden considerar homogéneas
+
+test_MD <- t.test(AE ~ tiempo, data = datos3,
+       alternative = c("two.sided"),
+       mu = 0, paired = TRUE)
+pvalue_MD <- test_MD$p.value
+
+dotplot +
+  geom_line(aes(color=muestra),lwd = 1.5) +
+   theme(axis.text.x = element_text(size = 22),
+        axis.text.y = element_text(size = 22),
+        axis.title.x = element_text(size = 25),
+        axis.title.y = element_text(size = 25))
+
+cat("Two sample t-test","\n")
+cat("p-value =", test_MD$p.value)
+```
+
+:::
+
+::: {.column width="50%"}
+Teniendo en cuenta ahora que trabajamos con **muestras pareadas**, el test adecuado para este caso es **test-t para la comparación de dos promedios en base a muestras dependientes.**
+
+¿Cuál sería nuestra conclusión en este caso? ¿Es la misma a la que habíamos llegado anteriormente?
+
+:::
+:::
+
+## ¿Qué aprendimos hasta acá?
+
+- La importancia de visualizar.
+
+- La elección de un gráfico adecuado.
+
+- Cada gráfico tiene sus potencialidades y limitaciones.
+
+## ¿Qué aprendimos hasta acá?
+- En toda figura intervienen **cuestiones estéticas** y de **percepción visual**.
+
+Un gráfico bastante, bastante feíto[^4]:
+
+[^4]: Extraído de: Healy, K. (2019). **Data Visualization. A practical introduction.** Princeton University Press.
+
+```{r,out.height="55%",fig.align="center"}
+knitr::include_graphics("imagenes/graf-lifeexp.jpg")
+```
+
+## ¿Qué aprendimos hasta acá?
+- En toda figura intervienen **cuestiones estéticas** y de **percepción visual**.
+
+A pesar de estar construidos con los mismos datos, estos dos gráficos no parecen mostrar lo mismo:
+
+::: columns
+::: {.column width="50%"}
+```{r,out.width = "100%",fig.pos = "center"}
+set.seed(2020)
+datos4 <- rnorm_multi(n = 10, 
+                  mu = c(0.6, 0.7, 1.2),
+                  sd = c(0.1, 0.1, 0.13),
+                  varnames = c("VA", "VB","VC"),
+                  empirical = FALSE)
+
+box1 <- datos4 %>%
+  ggplot(aes(y = VA)) +
+  geom_boxplot(linewidth = 1.8, col = "black",outlier.size = 3) +
+  ylab("Variable medida") +
+  xlab("Cond. A") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank())
+
+box2 <- datos4 %>%
+  ggplot(aes(y = VB)) +
+  geom_boxplot(linewidth = 1.8, col = "black",outlier.size = 3) +
+  ylab("") +
+  xlab("Cond. B") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank())
+
+box3 <- datos4 %>%
+  ggplot(aes(y = VC)) +
+  geom_boxplot(linewidth = 1.8, col = "black",outlier.size = 3) +
+  ylab("") +
+  xlab("Cond. C") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank())
+
+grid.arrange(box1,box2,box3,ncol = 3)
+```
+
+:::
+
+::: {.column width="50%"}
+```{r}
+box_multiple <- datos4 %>%
+  pivot_longer(cols = 1:3, names_to = "set", values_to = "variable") %>% 
+  mutate(set = factor(set,labels = c("Cond. A","Cond. B", "Cond. C"))) %>% 
+  ggplot(aes(x = set, y = variable, fill = set)) +
+  geom_boxplot(linewidth = 1.8, col = "black",outlier.size = 3) +
+  ylab("Variable medida") +
+  xlab("") +
+  theme(axis.text.x = element_text(face = "bold"))
+
+box_multiple
+```
+
+:::
+:::
+
+## Recursos interesantes
+
+- **data-to-viz.com**: árboles de decisión que conducen desde un tipo particular de datos a un conjunto de gráficos posibles.
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/poster_big-QR.png")
+```
+
+## Recursos interesantes
+
+- **cedricscherer.com**: blog de Cédric Scherer, *data visualization designer.*
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/Cedric-QR.png")
+```
+
+## Recursos interesantes
+
+- Healy, K. (2019). **Data Visualization. A practical introduction.** Princeton University Press.
+
+- Weissberger, T. L., Savic, M. *et al.* (2017) **Data visualization, bar naked: A free tool for creating interactive graphics.** *J. Biol. Chem.* 292(50) 20592-20598.
+
+- Wong, B. (2012). **Visualizing biological data.** *Nat. Methods* 9, 1131.
+
+## Agradecimientos
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/Recomendado.png")
+```
+
+```{r,out.height="75%",fig.align="center"}
+knitr::include_graphics("imagenes/logo-stat.png")
+```
+
+**E-mails:** \textcolor{youngbiophysics}{ferreyra@iquir-conicet.gov.ar - nlabadie@iquir-conicet.gov.ar}
+
+```{r, include=FALSE}
+# calculo de p-values, lo dejo aca para que nos quede 
+t.test(x=filter(datos3, tiempo == "30 min")$AE, 
+       y=filter(datos3, tiempo == "60 min")$AE, mu=0, paired=FALSE) 
+# pvalue 0.1132
+t.test(x=filter(datos3, tiempo == "30 min")$AE, 
+       y=filter(datos3, tiempo == "60 min")$AE, paired=TRUE) 
+# pvalue 0.00021
+```
+
